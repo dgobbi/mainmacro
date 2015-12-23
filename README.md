@@ -1,4 +1,4 @@
-A main() function for cross-platform command-line programs.
+## A main() function for cross-platform command-line programs.
 
 This package solves two of the difficulties with porting UNIX
 command-line programs to Windows:

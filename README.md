@@ -2,8 +2,9 @@ A main() function for cross-platform command-line programs.
 
 This package solves two of the difficulties with porting UNIX
 command-line programs to Windows:
-1. It allows the use of unicode arguments via wmain().
-2. It automatically expands the wildcards * and ?.
+
+1.  It allows the use of unicode arguments via wmain().
+2.  It automatically expands the wildcards * and ?.
 
 The way that it works is simple.  Include the "mainmacro.h" header file,
 and then use MAINMACRO() instead of main(), as shown in this example:

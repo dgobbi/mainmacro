@@ -3,11 +3,11 @@
 This package solves two of the difficulties with porting UNIX
 command-line programs to Windows:
 
-1.  It allows the use of unicode arguments via wmain().
-2.  It automatically expands the wildcards * and ?.
+1.  It allows unicode arguments via wmain(), and converts them to utf-8.
+2.  It automatically expands the wildcards * and ? in the arguments.
 
-The way that it works is simple.  Include the "mainmacro.h" header file,
-and then use MAINMACRO() instead of main(), as shown in this example:
+To use this package, simply include the "mainmacro.h" header file, and
+then use MAINMACRO() instead of main(), as shown in this example:
 
     #include "mainmacro.h"
     

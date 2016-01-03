@@ -149,10 +149,31 @@ private:
 
 bool Arguments::MatchesSpec(
   const wchar_t *val, size_t vl,
-  const wchar_t *spec, size_t pl)
+  const wchar_t *spec, size_t sl)
 {
+  // convert to lower case for case insensitivity
+  wchar_t val_lower[MAX_PATH];
+  wchar_t spec_lower[MAX_PATH];
+
+  if (vl < MAX_PATH && sl < MAX_PATH) {
+    for (size_t i = 0; i < vl; i++) {
+      val_lower[i] = val[i];
+    }
+    for (size_t i = 0; i < sl; i++) {
+      spec_lower[i] = spec[i];
+    }
+
+    if (CharLowerBuffW(val_lower, vl) == vl &&
+        CharLowerBuffW(spec_lower, sl) == sl) {
+      // if successful, use the lower-case strings
+      spec = spec_lower;
+      val = val_lower;
+    }
+  }
+
+  // get pointers to the end of the strings
   const wchar_t *cp = spec;
-  const wchar_t *ep = spec + pl;
+  const wchar_t *ep = spec + sl;
   const wchar_t *dp = val;
   const wchar_t *fp = val + vl;
 
@@ -252,7 +273,7 @@ bool Arguments::ExpandArgs(int argc, wchar_t *argv[])
       }
       else if (*cp == '\\' || *cp == '/' || *cp == 0) {
         path_is_complete = (*cp == 0);
-        // If path had a wildcard then push all matching dirs onto a list.
+        // If path has a wildcard push all matching dirs onto a list.
         if (has_wildcard) {
           // Check if directory list is empty.
           if (dircount == 0) {
@@ -308,8 +329,7 @@ bool Arguments::ExpandArgs(int argc, wchar_t *argv[])
                 }
                 // Ensure that the true filename matches the wildcards.
                 // (FindFirstFile, FindNextFile also match short filename)
-                if (segment_has_wildcard &&
-                    !MatchesSpec(data.cFileName, n, dp, cp-dp)) {
+                if (!MatchesSpec(data.cFileName, n, dp, cp-dp)) {
                   continue;
                 }
                 if (path_is_complete) {
@@ -345,7 +365,6 @@ bool Arguments::ExpandArgs(int argc, wchar_t *argv[])
           dirstart = prevcount;
         }
         dp = cp + 1;
-        segment_has_wildcard = false;
       }
     }
     // If no expansion could be done, push the argument as-is.

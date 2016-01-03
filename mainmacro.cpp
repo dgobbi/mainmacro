@@ -37,6 +37,7 @@
 #include "mainmacro.h"
 
 #include <stddef.h>
+#include <stdio.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -54,17 +55,14 @@ public:
 
   // Destruct by freeing the memory.
   ~Arguments() {
-    if (m_Argv) {
-      delete [] *m_Argv;
-      delete [] m_Argv;
-    }
+    FreeStrings(&m_Argc, &m_Argv);
   }
 
-  // Allocate space for the next arg (of size n, including null).
-  char *Next(int n);
-
-  // Add the next arg.
+  // Add the next arg (this is called by ExpandArgs).
   void Push(wchar_t *arg);
+
+  // Expand args, result can be retrieved with GetArgc, GetArgv.
+  bool ExpandArgs(int argc, wchar_t *argv[]);
 
   // Get the argc and argv for the args.
   int GetArgc() { return m_Argc; }
@@ -72,67 +70,209 @@ public:
 
 private:
   // Get the power of two equal or greater than n.
-  static int NearestPowerOfTwo(int n) {
-    unsigned int m = ((n > 0) ? n - 1 : 0);
+  static size_t NearestPowerOfTwo(size_t n) {
+    size_t m = ((n > 0) ? n - 1 : 0);
     m |= m >> 1;
     m |= m >> 2;
     m |= m >> 4;
     m |= m >> 8;
     m |= m >> 16;
-    return static_cast<int>(m + 1);
+#ifdef _WIN64
+    m |= m >> 32;
+#endif
+    return m + 1;
   }
 
   // Check if n is a power of two.
-  static bool IsPowerOfTwo(int n) {
-    return ((n & (n - 1)) == 0);
+  static bool IsPowerOfTwo(size_t n) {
+    return (n > 0 && (n & (n - 1)) == 0);
+  }
+
+  // Create a string of length n and add it to the given array.
+  template<class T>
+  static T *NewString(size_t n, int *count, T ***strings) {
+    T **array = *strings;
+    (*count)++;
+    if (array == 0) {
+      size_t m = NearestPowerOfTwo(n);
+      array = new T *[2];
+      array[0] = new T[m];
+      *strings = array;
+    }
+    else {
+      if (IsPowerOfTwo(*count)) {
+        T **newarray = new T *[*count * 2];
+        for (int i = 0; i < *count; i++) {
+          newarray[i] = array[i];
+        }
+        delete [] array;
+        array = newarray;
+        *strings = array;
+      }
+      size_t m = array[*count - 1] - array[0];
+      if (m + n > NearestPowerOfTwo(m)) {
+        T *cp = new T[NearestPowerOfTwo(m + n)];
+        T *oldcp = array[0];
+        for (size_t j = 0; j < m; j++) {
+          cp[j] = oldcp[j];
+        }
+        for (int i = 0; i < *count; i++) {
+          array[i] = cp + (array[i] - oldcp);
+        }
+        delete [] oldcp;
+      }
+    }
+
+    array[*count] = array[*count - 1] + n;
+    return array[*count - 1];
+  }
+
+  // Delete the array of strings.
+  template<class T>
+    static void FreeStrings(int *count, T ***strings) {
+    if (*strings) {
+      delete [] **strings;
+      delete [] *strings;
+    }
+    *count = 0;
+    *strings = 0;
   }
 
   int m_Argc;
   char **m_Argv;
 };
 
-char *Arguments::Next(int n)
-{
-  m_Argc++;
-  if (m_Argv == 0) {
-    int m = NearestPowerOfTwo(n);
-    m_Argv = new char *[2];
-    m_Argv[0] = new char[m];
-  }
-  else {
-    if (IsPowerOfTwo(m_Argc)) {
-      char **argv = new char *[m_Argc*2];
-      for (int i = 0; i < m_Argc; i++) {
-        argv[i] = m_Argv[i];
-      }
-      delete [] m_Argv;
-      m_Argv = argv;
-    }
-    int m = static_cast<int>(m_Argv[m_Argc-1] - m_Argv[0]);
-    if (m + n > NearestPowerOfTwo(m)) {
-      char *cp = new char[NearestPowerOfTwo(m + n)];
-      char *oldcp = m_Argv[0];
-      for (int j = 0; j < m; j++) {
-        cp[j] = oldcp[j];
-      }
-      for (int i = 0; i < m_Argc; i++) {
-        m_Argv[i] = cp + (m_Argv[i] - oldcp);
-      }
-      delete [] oldcp;
-    }
-  }
-
-  m_Argv[m_Argc] = m_Argv[m_Argc-1] + n;
-  return m_Argv[m_Argc-1];
-}
-
 void Arguments::Push(wchar_t *arg)
 {
   int n = WideCharToMultiByte(
     CP_UTF8, 0, arg, -1, NULL, 0, NULL, NULL);
-  char *cp = this->Next(n);
+  char *cp = NewString(n, &m_Argc, &m_Argv);
   WideCharToMultiByte(
     CP_UTF8, 0, arg, -1, cp, n, NULL, NULL);
+}
+
+bool Arguments::ExpandArgs(int argc, wchar_t *argv[])
+{
+  WIN32_FIND_DATAW data;
+  wchar_t *temp = 0;
+  size_t tempsize = 0;
+
+  for (int i = 0; i < argc; i++)
+    {
+    // for storing segments of the path that have wildcards
+    int dirstart = 0;
+    int dircount = 0;
+    wchar_t **directories = 0;
+
+    // check for wildcards
+    bool has_wildcard = false;
+    bool wildcard_expanded = false;
+    bool path_is_complete = false;
+    wchar_t *dp = argv[i];
+    for (wchar_t *cp = dp; !path_is_complete; cp++) {
+      if (*cp == '\?' || *cp == '*') {
+        has_wildcard = true;
+      }
+      else if (*cp == '\\' || *cp == '/' || *cp == 0) {
+        path_is_complete = (*cp == 0);
+        // If path segment had a wildcard, push all matching dirs onto a list.
+        if (has_wildcard) {
+          // Check if directory list is empty.
+          if (dircount == 0) {
+            // Push path segment (argv[i]..dp) onto the directory list.
+            size_t l = dp - argv[i];
+            wchar_t *ep = NewString(l, &dircount, &directories);
+            for (size_t j = 0; j < l; j++) {
+              ep[j] = argv[i][j];
+            }
+          }
+          // Get the length of the path segment.
+          size_t m = cp - dp;
+          int prevcount = dircount;
+          for (int k = dirstart; k < prevcount; k++) {
+            // Length of the directory (including the "/").
+            size_t l = directories[k + 1] - directories[k];
+            if (l+m+1 > tempsize) {
+              tempsize = l+m+9;
+              delete [] temp;
+              temp = new wchar_t[tempsize];
+            }
+            for (size_t j = 0; j < l; j++) {
+              temp[j] = directories[k][j];
+            }
+            for (size_t j = 0; j < m; j++) {
+              temp[l+j] = dp[j];
+            }
+            temp[l+m] = 0;
+            // Find all existing directories.
+            HANDLE hFile = FindFirstFileW(temp, &data);
+            if (hFile != INVALID_HANDLE_VALUE) {
+              do {
+                if (!path_is_complete &&
+                    (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+                  // A directory was expected
+                  continue;
+                }
+                if (data.cFileName[0] == '.' &&
+                    (data.cFileName[1] == 0 ||
+                     (data.cFileName[1] == '.' && data.cFileName[2] == 0))) {
+                  // The found file was '.' or '..'
+                  continue;
+                }
+                if (data.cFileName[0] == '.' && dp[0] != '.') {
+                  // The found file began with '.' but the filespec did not.
+                  continue;
+                }
+                // Append wildcard result to the directory.
+                wchar_t *result;
+                size_t n = 0;
+                while (data.cFileName[n] != 0 && n < MAX_PATH) {
+                  n++;
+                }
+                if (path_is_complete) {
+                  // Expand into temporary string if path is complete.
+                  if (l+n+1 > tempsize) {
+                    tempsize = l+n+9;
+                    delete [] temp;
+                    temp = new wchar_t[tempsize];
+                  }
+                  result = temp;
+                }
+                else {
+                  // Add result to directory list if path is not complete yet.
+                  result = NewString(l+n+1, &dircount, &directories);
+                }
+                for (size_t j = 0; j < l; j++) {
+                  result[j] = directories[k][j];
+                }
+                for (size_t j = 0; j < n; j++) {
+                  result[l+j] = data.cFileName[j];
+                }
+                result[l+n] = *cp;
+                // Push result onto the args if path is complete.
+                if (path_is_complete) {
+                  Push(result);
+                  wildcard_expanded = true;
+                }
+              }
+              while (FindNextFileW(hFile, &data));
+              FindClose(hFile);
+            }
+          }
+          dirstart = prevcount;
+        }
+        dp = cp + 1;
+      }
+    }
+    // If no expansion could be done, push the argument as-is.
+    if (!wildcard_expanded) {
+      Push(argv[i]);
+    }
+    FreeStrings(&dircount, &directories);
+  }
+  delete [] temp;
+
+  return true;
 }
 
 } // namespace
@@ -147,87 +287,12 @@ bool mainmacro_expandargs(
   int argc, wchar_t *argv[],
   int *argc_p, char ***argv_p)
 {
-  WIN32_FIND_DATAW data;
-
-  for (int i = 0; i < argc; i++)
-    {
-    // check for wildcards
-    bool has_wildcard = false;
-    wchar_t *cp = argv[i];
-    wchar_t *dp = cp;
-    while (*cp != 0) {
-      if (*cp == '\?' || *cp == '*') {
-        has_wildcard = true;
-      }
-      if (*cp == '\\' || *cp == '/') {
-        dp = cp + 1;
-        has_wildcard = false;
-      }
-      cp++;
-    }
-
-    if (has_wildcard)
-      {
-      wchar_t *temp = 0;
-      size_t tempsize = 0;
-      HANDLE hFile = FindFirstFileW(argv[i], &data);
-      if (hFile != INVALID_HANDLE_VALUE) {
-        do {
-          if (data.cFileName[0] == '.' &&
-              (data.cFileName[1] == 0 ||
-               (data.cFileName[1] == '.' && data.cFileName[2] == 0))) {
-            // The found file was '.' or '..'
-            continue;
-          }
-          else if (data.cFileName[0] == '.' && dp[0] != '.') {
-            // The found file began with '.' but the pattern file did not.
-            continue;
-          }
-          else if (dp == argv[i]) {
-            // Path does not contain a directory.
-            mainmacro_arguments.Push(data.cFileName);
-          }
-          else {
-            // Append wildcard result to the directory.
-            cp = argv[i];
-            size_t l = dp - cp;
-            size_t k = 0;
-            wchar_t *ep = data.cFileName;
-            while (ep[k] != 0) {
-              k++;
-            }
-            if (l+k+1 > tempsize) {
-              tempsize = l+k+9;
-              delete [] temp;
-              temp = new wchar_t[tempsize];
-            }
-            for (size_t j = 0; j < l; j++) {
-              temp[j] = cp[j];
-            }
-            for (size_t j = 0; j < k; j++) {
-              temp[l+j] = ep[j];
-            }
-            temp[l+k] = 0;
-            mainmacro_arguments.Push(temp);
-          }
-        }
-        while (FindNextFileW(hFile, &data));
-        FindClose(hFile);
-      }
-      else {
-        mainmacro_arguments.Push(argv[i]);
-      }
-      delete [] temp;
-    }
-    else {
-      mainmacro_arguments.Push(argv[i]);
-    }
+  if (mainmacro_arguments.ExpandArgs(argc, argv)) {
+    *argc_p = mainmacro_arguments.GetArgc();
+    *argv_p = mainmacro_arguments.GetArgv();
+    return true;
   }
-
-  *argc_p = mainmacro_arguments.GetArgc();
-  *argv_p = mainmacro_arguments.GetArgv();
-
-  return true;
+  return false;
 }
 #else
 bool mainmacro_expandargs(int *, char ***)

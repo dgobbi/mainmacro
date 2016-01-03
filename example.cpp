@@ -8,7 +8,7 @@
 #include <windows.h>
 #endif
 
-#include <iostream>
+#include <stdio.h>
 
 MAINMACRO(argc, argv)
 {
@@ -18,9 +18,10 @@ MAINMACRO(argc, argv)
   SetConsoleOutputCP(65001);
 #endif
 
-  std::cout << "Program: " << argv[0] << std::endl;
+  // Use printf (cout doesn't respect SetConsoleOutputCP).
+  printf("Program: %s\n", argv[0]);
   for (int i = 1; i < argc; i++) {
-    std::cout << argv[i] << std::endl;
+    printf("%s\n", argv[i]);
   }
 
 #if defined(_WIN32)

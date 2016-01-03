@@ -69,6 +69,11 @@ public:
   char **GetArgv() { return m_Argv; }
 
 private:
+  // Check if the given string matches the given wildcard pattern.
+  static bool MatchesSpec(
+    const wchar_t *val, size_t vl,
+    const wchar_t *spec, size_t pl);
+
   // Get the power of two equal or greater than n.
   static size_t NearestPowerOfTwo(size_t n) {
     size_t m = ((n > 0) ? n - 1 : 0);
@@ -142,6 +147,76 @@ private:
   char **m_Argv;
 };
 
+bool Arguments::MatchesSpec(
+  const wchar_t *val, size_t vl,
+  const wchar_t *spec, size_t pl)
+{
+  const wchar_t *cp = spec;
+  const wchar_t *ep = spec + pl;
+  const wchar_t *dp = val;
+  const wchar_t *fp = val + vl;
+
+  while (cp != ep && dp != fp) {
+    if (*cp == '*') {
+      cp++;
+      // if '*' is the final character, it matches the remainder of val
+      if (cp == ep) {
+        dp = fp;
+      }
+      else {
+        while (dp != fp) {
+          if (*cp == '?' || *dp == *cp) {
+            // check if the remainder of val matches remainder of spec
+            if (MatchesSpec(dp, fp-dp, cp, ep-cp)) {
+              break;
+            }
+          }
+          // else let the "*" eat one more codepoint of "val"
+          if ((*dp++ & 0xFC00) == 0xD800) {
+            if (dp != fp && (*dp & 0xFC00) == 0xDC00) {
+              dp++;
+            }
+          }
+        }
+      }
+    }
+    else if (*cp == '?') {
+      // the '?' matches a whole codepoint, not just one wchar
+      cp++;
+      if ((*dp++ & 0xFC00) == 0xD800) {
+        if (dp != fp && (*dp & 0xFC00) == 0xDC00) {
+          dp++;
+        }
+      }
+    }
+    else if (*cp == *dp) {
+      // make sure the entire codepoint matches
+      cp++;
+      if ((*dp++ & 0xFC00) == 0xD800) {
+        if (cp != ep && dp != fp &&
+            ((*cp & 0xFC00) == 0xDC00 || (*dp & 0xFC00) == 0xDC00)) {
+          if (*dp != *cp) {
+            return false;
+          }
+          cp++;
+          dp++;
+        }
+      }
+    }
+    else {
+      return false;
+    }
+  }
+
+  // skip over any remaining '*' wildcards
+  while (cp != ep && *cp == '*') {
+    cp++;
+  }
+
+  // make sure we've reached the end of both the spec and the value
+  return (cp == ep && dp == fp);
+}
+
 void Arguments::Push(wchar_t *arg)
 {
   int n = WideCharToMultiByte(
@@ -166,16 +241,18 @@ bool Arguments::ExpandArgs(int argc, wchar_t *argv[])
 
     // check for wildcards
     bool has_wildcard = false;
+    bool segment_has_wildcard = false;
     bool wildcard_expanded = false;
     bool path_is_complete = false;
     wchar_t *dp = argv[i];
     for (wchar_t *cp = dp; !path_is_complete; cp++) {
       if (*cp == '\?' || *cp == '*') {
         has_wildcard = true;
+        segment_has_wildcard = true;
       }
       else if (*cp == '\\' || *cp == '/' || *cp == 0) {
         path_is_complete = (*cp == 0);
-        // If path segment had a wildcard, push all matching dirs onto a list.
+        // If path had a wildcard then push all matching dirs onto a list.
         if (has_wildcard) {
           // Check if directory list is empty.
           if (dircount == 0) {
@@ -229,6 +306,12 @@ bool Arguments::ExpandArgs(int argc, wchar_t *argv[])
                 while (data.cFileName[n] != 0 && n < MAX_PATH) {
                   n++;
                 }
+                // Ensure that the true filename matches the wildcards.
+                // (FindFirstFile, FindNextFile also match short filename)
+                if (segment_has_wildcard &&
+                    !MatchesSpec(data.cFileName, n, dp, cp-dp)) {
+                  continue;
+                }
                 if (path_is_complete) {
                   // Expand into temporary string if path is complete.
                   if (l+n+1 > tempsize) {
@@ -262,6 +345,7 @@ bool Arguments::ExpandArgs(int argc, wchar_t *argv[])
           dirstart = prevcount;
         }
         dp = cp + 1;
+        segment_has_wildcard = false;
       }
     }
     // If no expansion could be done, push the argument as-is.

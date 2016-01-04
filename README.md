@@ -6,6 +6,8 @@ command-line programs to Windows:
 1.  It allows unicode arguments via wmain(), and converts them to utf-8.
 2.  It automatically expands the wildcards * and ? in the arguments.
 
+It is possible to turn off the wildcard expansion for certain arguments.
+
 To use this package, simply include the "mainmacro.h" header file, and
 then use MAINMACRO() instead of main(), as shown in this example:
 

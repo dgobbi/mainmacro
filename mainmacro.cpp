@@ -61,7 +61,7 @@ public:
   void Push(wchar_t *arg);
 
   // Expand args, result can be retrieved with GetArgc, GetArgv.
-  bool ExpandArgs(int argc, wchar_t *argv[]);
+  bool ExpandArgs(int argc, wchar_t *argv[], const char *passthrough);
 
   // Get the argc and argv for the args.
   int GetArgc() { return m_Argc; }
@@ -246,11 +246,12 @@ void Arguments::Push(wchar_t *arg)
     CP_UTF8, 0, arg, -1, cp, n, NULL, NULL);
 }
 
-bool Arguments::ExpandArgs(int argc, wchar_t *argv[])
+bool Arguments::ExpandArgs(int argc, wchar_t *argv[], const char *passthrough)
 {
   WIN32_FIND_DATAW data;
   wchar_t *temp = 0;
   size_t tempsize = 0;
+  bool expand_wildcards = true;
 
   for (int i = 0; i < argc; i++)
     {
@@ -266,7 +267,7 @@ bool Arguments::ExpandArgs(int argc, wchar_t *argv[])
     bool path_is_complete = false;
     wchar_t *dp = argv[i];
     for (wchar_t *cp = dp; !path_is_complete; cp++) {
-      if (*cp == '\?' || *cp == '*') {
+      if (expand_wildcards && (*cp == '\?' || *cp == '*')) {
         has_wildcard = true;
         segment_has_wildcard = true;
       }
@@ -369,6 +370,34 @@ bool Arguments::ExpandArgs(int argc, wchar_t *argv[])
     // If no expansion could be done, push the argument as-is.
     if (!wildcard_expanded) {
       Push(argv[i]);
+      if (passthrough) {
+        expand_wildcards = true;
+        // Check the arg against the expansion exclusion list.
+        const char *arg = m_Argv[m_Argc-1];
+        const char *ex = passthrough;
+        while (*ex == ' ' || *ex == '\t') {
+          ex++;
+        }
+        while (*ex != '\0') {
+          const char *ee = ex;
+          while (*ee != '\0' && *ee != ' ' && *ee != '\t') {
+            ee++;
+          }
+          while (*arg != '\0' && ex != ee && *ex == *arg) {
+            ex++;
+            arg++;
+          }
+          if (*arg == '\0' && ex == ee) {
+            // Do not expand wildcards in the next arg.
+            expand_wildcards = false;
+            break;
+          }
+          ex = ee;
+          while (*ex == ' ' || *ex == '\t') {
+            ex++;
+          }
+        }
+      }
     }
     FreeStrings(&dircount, &directories);
   }
@@ -387,9 +416,10 @@ static Arguments mainmacro_arguments;
 #ifdef _WIN32
 bool mainmacro_expandargs(
   int argc, wchar_t *argv[],
-  int *argc_p, char ***argv_p)
+  int *argc_p, char ***argv_p,
+  const char *passthrough)
 {
-  if (mainmacro_arguments.ExpandArgs(argc, argv)) {
+  if (mainmacro_arguments.ExpandArgs(argc, argv, passthrough)) {
     *argc_p = mainmacro_arguments.GetArgc();
     *argv_p = mainmacro_arguments.GetArgv();
     return true;
@@ -397,7 +427,7 @@ bool mainmacro_expandargs(
   return false;
 }
 #else
-bool mainmacro_expandargs(int *, char ***)
+bool mainmacro_expandargs(int *, char ***, const char *)
 {
   return true;
 }

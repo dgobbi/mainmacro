@@ -3,7 +3,6 @@
   Program: mainmacro
 
   Copyright (c) 2015 David Gobbi
-
   All rights reserved.
 
   Redistribution and use in source and binary forms, with or without
@@ -44,7 +43,23 @@
  */
 bool mainmacro_expandargs(
   int wargc, wchar_t *wargv[],
-  int *argc_p, char ***argv_p);
+  int *argc_p, char ***argv_p,
+  const char *passthrough);
+
+//! Supply a list of options for which wildcards should be passed through.
+/*!
+ *  The command-line argument that follows any of the options that are
+ *  passed to this macro will not be expanded if they include wildcards.
+ *  Instead, the wildcards will be passed through to main().
+ */
+//! This is the macro for specifying the passthrough options, if any.
+#ifdef _WIN32
+#define MAINMACRO_PASSTHROUGH(opts) \
+  inline const char *mainmacro_passthrough(int) { return #opts; }
+inline const char *mainmacro_passthrough(float) { return 0; }
+#else
+  #define MAINMACRO_PASSTHROUGH(opts)
+#endif
 
 //! A macro to use wmain on Windows.
 #ifdef _WIN32
@@ -54,7 +69,8 @@ int wmain(int wargc, wchar_t *wargv[]) \
 { \
   int argc = 0; \
   char **argv = 0; \
-  mainmacro_expandargs(wargc, wargv, &argc, &argv); \
+  mainmacro_expandargs(wargc, wargv, &argc, &argv, \
+                       mainmacro_passthrough(1)); \
   return main_with_utf8_args(argc, argv); \
 } \
 int main_with_utf8_args(int argc, char *argv[])

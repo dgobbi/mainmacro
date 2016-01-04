@@ -10,6 +10,10 @@
 
 #include <stdio.h>
 
+// This is an example of marking options for passthrough (wildcards will
+// not be expanded in the arg that follows these options).
+MAINMACRO_PASSTHROUGH(-type -stretch);
+
 MAINMACRO(argc, argv)
 {
 #if defined(_WIN32)

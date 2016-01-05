@@ -13,7 +13,7 @@ then use MAINMACRO() instead of main(), as shown in this example:
 
     #include "mainmacro.h"
     
-    MAINMACRO(argc, argv)
+    int MAINMACRO(int argc, char *argv[])
     {
       // do stuff
       return 0;

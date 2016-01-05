@@ -63,8 +63,8 @@ inline const char *mainmacro_passthrough(float) { return 0; }
 
 //! A macro to use wmain on Windows.
 #ifdef _WIN32
-#define MAINMACRO(argc, argv) \
-int main_with_utf8_args(int argc, char *argv[]); \
+#define MAINMACRO(a, b) \
+main_with_utf8_args(a, b); \
 int wmain(int wargc, wchar_t *wargv[]) \
 { \
   int argc = 0; \
@@ -73,10 +73,10 @@ int wmain(int wargc, wchar_t *wargv[]) \
                        mainmacro_passthrough(1)); \
   return main_with_utf8_args(argc, argv); \
 } \
-int main_with_utf8_args(int argc, char *argv[])
+int main_with_utf8_args(a, b)
 #else
-#define MAINMACRO(argc, argv) \
-int main(int argc, char *argv[])
+#define MAINMACRO(a, b) \
+main(a, b)
 #endif
 
 #endif /* mainmacro_h */

@@ -14,7 +14,7 @@
 // not be expanded in the arg that follows these options).
 MAINMACRO_PASSTHROUGH(-type -stretch);
 
-MAINMACRO(argc, argv)
+int MAINMACRO(int argc, char *argv[])
 {
 #if defined(_WIN32)
   // Temporarily switch the console to utf-8

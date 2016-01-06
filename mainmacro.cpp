@@ -424,9 +424,4 @@ bool mainmacro_expandargs(
   }
   return false;
 }
-#else
-bool mainmacro_expandargs(int *, char ***, const char *)
-{
-  return true;
-}
 #endif

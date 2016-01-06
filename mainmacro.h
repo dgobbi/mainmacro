@@ -39,10 +39,12 @@
  *  This will expand any wildcards in the arguments, and is only applied
  *  on Windows because UNIX shells do wildcard expansion by themselves.
  */
+#ifdef _WIN32
 bool mainmacro_expandargs(
   int wargc, wchar_t *wargv[],
   int *argc_p, char ***argv_p,
   const char *passthrough);
+#endif
 
 //! Supply a list of options for which wildcards should be passed through.
 /*!
